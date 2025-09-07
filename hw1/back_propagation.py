@@ -1,11 +1,11 @@
 import numpy as np
 class MLPRegressor:
     def __init__(self, hidden_layer_sizes=(100,), learning_rate=0.001, max_iter=10):
-        self.hidden_layer_sizes = hidden_layer_sizes
-        self.learning_rate = learning_rate
-        self.max_iter = max_iter
-        self.weights = []    
-        self.biases = []     
+        self.hidden_layer_sizes = hidden_layer_sizes # Параметры скрытых слоев
+        self.learning_rate = learning_rate # Скорость обучения
+        self.max_iter = max_iter # Максимальное число итераций
+        self.weights = []  # Веса нейронов
+        self.biases = []   # Биасы нейронов
 
     def _init_weights(self, size):
         self.weights = []
