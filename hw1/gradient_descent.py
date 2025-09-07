@@ -29,7 +29,88 @@ class CustomLinearRegression:
         self._coef = None
         self._intercept = None
 
+    def get_params(self, deep=True):
+        return {
+            'penalty': self.penalty,
+            'alpha': self.alpha,
+            'max_iter': self.max_iter,
+            'tol': self.tol,
+            'random_state': self.random_state,
+            'eta0': self.eta0,
+            'early_stopping': self.early_stopping,
+            'validation_fraction': self.validation_fraction,
+            'n_iter_no_change': self.n_iter_no_change,
+            'shuffle': self.shuffle
+        }
+
+    def _prepare_data(self, x, y):
+        x_np = np.array(x)
+        if x_np.ndim == 1:
+            x_np = x_np.reshape(-1, 1) 
+
+        y_np = np.array(y)
+        if y_np.ndim == 1:
+            y_np = y_np.reshape(-1, 1)
+            
+        return x_np, y_np
+
+    def _initialize_weights(self, n_features):
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+
+        self._coef = np.random.randn(1, n_features) * 0.01  
+        self._intercept = np.random.randn(1) * 0.01
+
+    def _split_validation_data(self, x, y):
+        if self.early_stopping:  
+            
+            validation_size = int(self.validation_fraction * len(x))  
+            
+            x_train, x_val = x[:-validation_size], x[-validation_size:]
+            y_train, y_val = y[:-validation_size], y[-validation_size:]
+            
+            return x_train, y_train, x_val, y_val
+        else:
+            return x, y, None, None
+
+    def _shuffle_data(self, x, y):
+        if self.shuffle:  
+            indices = np.random.permutation(len(x))
+            return x[indices], y[indices]
+        return x, y
+
+    def _compute_gradients(self, x_batch, y_batch, y_pred):
+        
+        grad_coef = -2 * np.dot(x_batch.T, (y_batch - y_pred)) / len(x_batch)
+        
+        grad_intercept = -2 * np.sum(y_batch - y_pred) / len(x_batch)
+        grad_coef += self.get_penalty_grad().T
+        
+        return grad_coef, grad_intercept
+
+    def _update_weights(self, grad_coef, grad_intercept):
+        
+        self._coef -= self.eta0 * grad_coef.T
+        self._intercept -= self.eta0 * grad_intercept
+
+    def _compute_loss(self, x, y):
+        
+        y_pred = self.predict(x)
+        return np.mean((y - y_pred) ** 2)
+
+    def _check_early_stopping(self, current_loss, best_loss, no_improvement_count, is_validation=True):
+       
+        if current_loss < best_loss - self.tol:
+            return current_loss, 0, False  
+        else:
+            no_improvement_count += 1
+            if no_improvement_count >= self.n_iter_no_change:
+                print(f"Ранняя остановка на итерации: достигнут предел без улучшения")
+                return best_loss, no_improvement_count, True  # Останавливаем
+            return best_loss, no_improvement_count, False  # Продолжаем
+
     def get_penalty_grad(self):  
+        
         if self.penalty == "l2":  
             return 2 * self.alpha * self._coef
         elif self.penalty == "l1":  
@@ -37,84 +118,43 @@ class CustomLinearRegression:
         else:
             return 0  
 
+    def fit(self, x, y):  
+        x_np, y_np = self._prepare_data(x, y)
+        
+        self._initialize_weights(x_np.shape[1])
+        
+        x_train, y_train, x_val, y_val = self._split_validation_data(x_np, y_np)
+
+        best_loss = float('inf')
+        no_improvement_count = 0
+
+        # Основной цикл обучения
+        for iter in range(self.max_iter):
+            # Перемешивание
+            x_shuffled, y_shuffled = self._shuffle_data(x_train, y_train)
+            # Прямой проход
+            y_pred = self.predict(x_shuffled)
+            # Градиенты
+            grad_coef, grad_intercept = self._compute_gradients(x_shuffled, y_shuffled, y_pred)
+            # Обновляеи веса
+            self._update_weights(grad_coef, grad_intercept)
+            # Считаем ошибку
+            current_loss = self._compute_loss(x_train, y_train)
+      
+            if self.early_stopping:
+                val_loss = self._compute_loss(x_val, y_val)
+                best_loss, no_improvement_count, should_stop = self._check_early_stopping(val_loss, best_loss, no_improvement_count, True)
+            else:
+                best_loss, no_improvement_count, should_stop = self._check_early_stopping(current_loss, best_loss, no_improvement_count, False)
+                
+            if should_stop:
+                break
+
     def predict(self, x):
         x_np = np.array(x)
         if x_np.ndim == 1:
             x_np = x_np.reshape(-1, 1)
         return np.dot(x_np, self._coef.T) + self._intercept
-
-  def fit(self, x, y):  
-        x_np = np.array(x)
-        if x_np.ndim == 1:
-            x_np = x_np.reshape(-1, 1) 
-
-        y_np = np.array(y)
-        if y_np.ndim == 1:
-            y_np = y_np.reshape(-1, 1) 
-
-        if self.random_state is not None:
-            np.random.seed(self.random_state)
-
-        self._coef = np.random.randn(1, x_np.shape[1]) * 0.01  
-        self._intercept = np.random.randn(1) * 0.01  
-
-        if self.early_stopping:  
-            validation_size = int(self.validation_fraction * len(x_np))  
-            x_train, x_val = x_np[:-validation_size], x_np[-validation_size:]
-            y_train, y_val = y_np[:-validation_size], y_np[-validation_size:]
-        else:
-            x_train, y_train = x_np, y_np
-
-        best_loss = float('inf')
-        no_improvement_count = 0
-
-        for iter in range(self.max_iter):
-            if self.shuffle:  
-                indices = np.random.permutation(len(x_train))
-                x_train_shuffled = x_train[indices]
-                y_train_shuffled = y_train[indices]
-            else:
-                x_train_shuffled = x_train
-                y_train_shuffled = y_train
-
-            y_pred = np.dot(x_train_shuffled, self._coef.T) + self._intercept
-
-            grad_coef = -2 * np.dot(x_train_shuffled.T, (y_train_shuffled - y_pred)) / len(x_train_shuffled)
-            grad_intercept = -2 * np.sum(y_train_shuffled - y_pred) / len(x_train_shuffled)
-
-            grad_coef += self.get_penalty_grad().T
-
-            self._coef -= self.eta0 * grad_coef.T
-            self._intercept -= self.eta0 * grad_intercept
-
-            y_pred_train = np.dot(x_train, self._coef.T) + self._intercept
-            loss = np.mean((y_train - y_pred_train) ** 2)
-
-       
-            if self.early_stopping: # Если включена ранняя остановка
-                y_pred_val = np.dot(x_val, self._coef.T) + self._intercept
-                val_loss = np.mean((y_val - y_pred_val) ** 2)
-
-                if val_loss < best_loss - self.tol:
-                    best_loss = val_loss
-                    no_improvement_count = 0
-                else:
-                    no_improvement_count += 1
-
-                if no_improvement_count >= self.n_iter_no_change:
-                    break
-            else:
-                if loss < best_loss - self.tol:
-                    best_loss = loss
-                    no_improvement_count = 0
-                else:
-                    no_improvement_count += 1
-
-                if no_improvement_count >= self.n_iter_no_change:
-                    break
-
-            if iter % 100 == 0:
-                print(f"Итерация {iter}, Ошибка: {loss:.6f}")
 
     @property
     def coef_(self):
